@@ -89,9 +89,6 @@ public class ExecuteHandler implements HttpHandler {
             case "power":
                 moteEffector.setPower(mote, value.intValue());
                 break;
-            case "sampling_rate":
-                moteEffector.setSamplingRate(mote, value.intValue());
-                break;
             case "spreading_factor":
                 moteEffector.setSpreadingFactor(mote, value.intValue());
                 break;
@@ -174,6 +171,7 @@ public class ExecuteHandler implements HttpHandler {
                     // Handle out-of-range value
                     System.out.println("Adaptation value out of range for " + adaptation.getName() + ": " + value);
                     OUT_OF_BOUNDS_ADAPTATION.send(exchange);  // New HTTP response for out-of-bounds value
+                    return;
                 }
             }
         }

@@ -5,11 +5,10 @@ import lombok.Getter;
 import lombok.Setter;
 import org.jxmapviewer.viewer.GeoPosition;
 
-import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 
 
@@ -47,6 +46,24 @@ public class Mote extends NetworkEntity {
      * Accumulates fractional energy usage until a full energy unit can be deducted from the mote.
      */
     private double energyConsumptionBuffer = 0.0;
+
+    /**
+     * The transmissions (one per gateway) of the latest packet sent by the mote.
+     */
+    private LinkedList<LoraTransmission> latestTransmissions = new LinkedList<>();
+
+    /**
+     * The number of settled packets that at least one gateway received without collision, and that none did.
+     */
+    private int deliveredPackets = 0;
+    private int undeliveredPackets = 0;
+
+    /**
+     * Whether each of the most recently settled packets was delivered, oldest first.
+     * Synchronized on itself: the simulation thread writes it while the HTTP thread reads it.
+     */
+    private final LinkedList<Boolean> recentDeliveries = new LinkedList<>();
+    private static final int MAX_RECENT_DELIVERIES = 100;
     /**
      * An integer representing the sampling rate of the mote.
      */
@@ -87,7 +104,8 @@ public class Mote extends NetworkEntity {
 
     public Mote(Long DevEUI, Integer xPos, Integer yPos, Environment environment, Integer transmissionPower,
                 Integer SF, LinkedList<MoteSensor> moteSensors, Integer energyLevel, LinkedList<GeoPosition> path, Integer samplingRate, Double movementSpeed, Integer startOffset){
-       super(DevEUI, xPos,yPos, environment,transmissionPower,SF,1.0);
+       // 6 dB co-spreading-factor capture threshold (Bor et al., "Do LoRa Low-Power Wide-Area Networks Scale?", 2016)
+       super(DevEUI, xPos,yPos, environment,transmissionPower,SF,6.0);
         environment.addMote(this);
         OverTheAirActivation();
         this.moteSensors = moteSensors;
@@ -180,17 +198,66 @@ public class Mote extends NetworkEntity {
     }
 
     @Override
-    protected void loraSend(LoraWanPacket message){
+    protected LinkedList<LoraTransmission> loraSend(LoraWanPacket message){
         int runIndex = 0;
         if (getEnvironment() != null && getEnvironment().getNumberOfRuns() > 0) {
             runIndex = getEnvironment().getNumberOfRuns() - 1;
         }
 
+        settleLatestPacket(runIndex);
+
         int transmissionsBeforeSend = getSentTransmissions(runIndex).size();
 
-        super.loraSend(message);
+        LinkedList<LoraTransmission> transmissions = super.loraSend(message);
 
         applyEnergyConsumptionForNewTransmissions(runIndex, transmissionsBeforeSend);
+        latestTransmissions = transmissions;
+        return transmissions;
+    }
+
+    /**
+     * Records whether the latest packet was delivered, i.e. received without collision by at least one gateway.
+     * This is called right before the next packet is sent: the latest packet is off air by then (its airtime is
+     * shorter than the time between two packets of a mote), so its outcome can no longer change.
+     * @param runIndex The index of the current run.
+     */
+    private void settleLatestPacket(int runIndex) {
+        if (latestTransmissions.isEmpty()) {
+            return;
+        }
+        boolean delivered = latestTransmissions.stream().anyMatch(transmission -> wasReceived(transmission, runIndex));
+        if (delivered) {
+            deliveredPackets++;
+        } else {
+            undeliveredPackets++;
+        }
+        synchronized (recentDeliveries) {
+            recentDeliveries.add(delivered);
+            if (recentDeliveries.size() > MAX_RECENT_DELIVERIES) {
+                recentDeliveries.removeFirst();
+            }
+        }
+        numberOfLostPackets = undeliveredPackets;
+        latestTransmissions = new LinkedList<>();
+    }
+
+    /**
+     * Returns if a transmission was received by its receiver without collision.
+     * @param transmission The transmission.
+     * @param run The index of the run.
+     * @return true if the receiver received the transmission and it did not collide.
+     */
+    public static boolean wasReceived(LoraTransmission transmission, int run) {
+        Boolean collided = transmission.getReceiver().getAllReceivedTransmissions(run).get(transmission);
+        return collided != null && !collided;
+    }
+
+    /**
+     * Returns the transmissions (one per gateway) of the latest packet sent by the mote.
+     * @return The transmissions of the latest packet, empty if the mote has not sent anything yet.
+     */
+    public LinkedList<LoraTransmission> getLatestTransmissions() {
+        return latestTransmissions;
     }
 
     private void applyEnergyConsumptionForNewTransmissions(int runIndex, int transmissionsBeforeSend) {
@@ -355,116 +422,62 @@ public class Mote extends NetworkEntity {
     public void reset(){
         super.reset();
         energyConsumptionBuffer = 0.0;
+        clearDeliveries();
     }
 
-    public Double calculatePacketLoss(Integer run) {
-        int receivedPackets = 0;
+    @Override
+    public void addRun(){
+        super.addRun();
+        clearDeliveries();
+    }
 
-        if (numberOfSentPackets == 0) {
-            return 0D;
+    private void clearDeliveries() {
+        latestTransmissions = new LinkedList<>();
+        deliveredPackets = 0;
+        undeliveredPackets = 0;
+        synchronized (recentDeliveries) {
+            recentDeliveries.clear();
         }
-
-        for (Gateway gateway : getEnvironment().getGateways()) {
-            for (LoraTransmission receivedTransmission : gateway.getReceivedTransmissions(run)) {
-                if (receivedTransmission.getSender() == this ) {
-                    receivedPackets++;
-                }
-            }
-        }
-
-        for (Mote mote : getEnvironment().getMotes()) {
-            for (LoraTransmission receivedTransmission : mote.getReceivedTransmissions(run)) {
-                if (receivedTransmission.getSender() == this ) {
-                    receivedPackets++;
-                }
-            }
-        }
-
-        this.numberOfLostPackets = numberOfSentPackets - receivedPackets;
-
-        return (numberOfSentPackets - receivedPackets) / (double) numberOfSentPackets;
+        numberOfLostPackets = 0;
     }
 
     /**
-     * Calculates the packet loss for the most recent transmissions of the mote in the given run.
+     * Calculates the packet loss of the mote: the fraction of its settled packets that no gateway received
+     * without collision. The latest packet is settled when the next one is sent.
+     * @param run the run index (the current run is tracked).
+     * @return packet loss ratio, or 0 when no packet has been settled yet.
+     */
+    public Double calculatePacketLoss(Integer run) {
+        int settledPackets = deliveredPackets + undeliveredPackets;
+        if (settledPackets == 0) {
+            return 0D;
+        }
+        return undeliveredPackets / (double) settledPackets;
+    }
+
+    /**
+     * Calculates the packet loss for the most recent packets of the mote.
      *
-     * @param run        the run index to inspect.
-     * @param windowSize number of recent transmissions to include in the calculation.
-     * @return packet loss ratio for the selected window, or 0 when insufficient data is available.
+     * @param run        the run index (the current run is tracked).
+     * @param windowSize number of recent packets to include in the calculation.
+     * @return packet loss ratio for the selected window, or 0 when no packet has been settled yet.
      */
     public Double calculateRecentPacketLoss(Integer run, int windowSize) {
-        if (run == null || windowSize <= 0 || getEnvironment() == null) {
-            return 0D;
-        }
-
-        LinkedList<LoraTransmission> sentTransmissions = getSentTransmissions(run);
-        if (sentTransmissions == null || sentTransmissions.isEmpty()) {
-            return 0D;
-        }
-
-        int transmissionsToInspect = Math.min(windowSize, sentTransmissions.size());
-        if (transmissionsToInspect <= 0) {
-            return 0D;
-        }
-
-        List<Map<LoraTransmission, Boolean>> receivedTransmissionMaps = collectReceivedTransmissionMaps(run);
-
-        int successfulPackets = 0;
-        for (int i = sentTransmissions.size() - 1, inspected = 0; i >= 0 && inspected < transmissionsToInspect; i--, inspected++) {
-            LoraTransmission transmission = sentTransmissions.get(i);
-            if (wasSuccessfullyReceived(transmission, receivedTransmissionMaps)) {
-                successfulPackets++;
+        synchronized (recentDeliveries) {
+            if (windowSize <= 0 || recentDeliveries.isEmpty()) {
+                return 0D;
             }
-        }
 
-        return (transmissionsToInspect - successfulPackets) / (double) transmissionsToInspect;
-    }
-
-    private List<Map<LoraTransmission, Boolean>> collectReceivedTransmissionMaps(Integer run) {
-        List<Map<LoraTransmission, Boolean>> receivedTransmissionMaps = new ArrayList<>();
-
-        Environment environment = getEnvironment();
-        if (environment == null) {
-            return receivedTransmissionMaps;
-        }
-
-        if (environment.getGateways() != null) {
-            for (Gateway gateway : environment.getGateways()) {
-                Map<LoraTransmission, Boolean> transmissions = gateway.getAllReceivedTransmissions(run);
-                if (transmissions != null && !transmissions.isEmpty()) {
-                    receivedTransmissionMaps.add(transmissions);
+            int inspected = 0;
+            int lost = 0;
+            Iterator<Boolean> deliveries = recentDeliveries.descendingIterator();
+            while (deliveries.hasNext() && inspected < windowSize) {
+                if (!deliveries.next()) {
+                    lost++;
                 }
+                inspected++;
             }
+            return lost / (double) inspected;
         }
-
-        if (environment.getMotes() != null) {
-            for (Mote mote : environment.getMotes()) {
-                if (mote == null || mote == this) {
-                    continue;
-                }
-
-                Map<LoraTransmission, Boolean> transmissions = mote.getAllReceivedTransmissions(run);
-                if (transmissions != null && !transmissions.isEmpty()) {
-                    receivedTransmissionMaps.add(transmissions);
-                }
-            }
-        }
-
-        return receivedTransmissionMaps;
-    }
-
-    private boolean wasSuccessfullyReceived(LoraTransmission transmission, List<Map<LoraTransmission, Boolean>> receivedTransmissionMaps) {
-        if (transmission == null || receivedTransmissionMaps.isEmpty()) {
-            return false;
-        }
-
-        for (Map<LoraTransmission, Boolean> transmissions : receivedTransmissionMaps) {
-            Boolean collision = transmissions.get(transmission);
-            if (collision != null && !collision) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

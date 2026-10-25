@@ -35,12 +35,6 @@ public class AdaptationOptionsHandler implements HttpHandler {
                 12D
         ),
         new AdaptationOptionModel(
-                "sampling_rate",
-                "The sampling rate of the sensors of the mote.",
-                0D,
-                null
-        ),
-        new AdaptationOptionModel(
                 "movement_speed",
                 "The movement speed of the mote.",
                 0D,

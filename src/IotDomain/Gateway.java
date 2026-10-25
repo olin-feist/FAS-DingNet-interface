@@ -22,7 +22,8 @@ public class Gateway extends NetworkEntity {
      * @Effect creates a gateway with a given name, xPos, yPos, environment and transmission power.
      */
     public Gateway(Long gatewayEUI, Integer xPos, Integer yPos, Environment environment, Integer transmissionPower, Integer SF) {
-        super(gatewayEUI , xPos, yPos, environment, transmissionPower, SF, 1.0);
+        // 6 dB co-spreading-factor capture threshold (Bor et al., "Do LoRa Low-Power Wide-Area Networks Scale?", 2016)
+        super(gatewayEUI , xPos, yPos, environment, transmissionPower, SF, 6.0);
         environment.addGateway(this);
         subscribedMoteProbes = new LinkedList<>();
     }

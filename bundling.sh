@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # --- COMPILE SOURCES FIRST ---
-/opt/homebrew/opt/java11/libexec/openjdk.jdk/Contents/Home/bin/javac \
+"${JAVA_HOME:?set JAVA_HOME to a JDK 11-21}/bin/javac" --release 11 \
   -cp "lib/*" \
   -d out/classes \
   @sources.txt

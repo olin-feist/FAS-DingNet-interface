@@ -49,6 +49,10 @@ public class Environment implements Serializable {
      */
     private LocalTime clock;
     /**
+     * The simulated time in milliseconds since the clock was reset. Unlike the clock, it does not wrap around at midnight.
+     */
+    private long elapsedMillis = 0;
+    /**
      * The number of zones in the configuration.
      */
     private Integer numberOfZones = 36;
@@ -270,10 +274,20 @@ public class Environment implements Serializable {
      */
     public void tick(long milliSeconds) {
         this.clock= this.clock.plus(milliSeconds, ChronoUnit.MILLIS);
+        this.elapsedMillis += milliSeconds;
     }
 
     public void resetClock(){
         this.clock =  LocalTime.of(0,0);
+        this.elapsedMillis = 0;
+    }
+
+    /**
+     * Returns the simulated time since the clock was reset.
+     * @return The simulated time in milliseconds since the clock was reset.
+     */
+    public long getElapsedMillis() {
+        return elapsedMillis;
     }
 
     /**

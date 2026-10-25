@@ -6,7 +6,6 @@ package IotDomain;
 import lombok.Getter;
 
 import java.io.Serializable;
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -234,8 +233,14 @@ public abstract class NetworkEntity implements Serializable{
             Boolean collision = false;
             for (LoraTransmission receivedTransmission: getAllReceivedTransmissions(getEnvironment().getNumberOfRuns()-1).keySet()) {
                 if(collision(transmission,receivedTransmission)){
-                    this.receivedTransmissions.getLast().put(receivedTransmission,true);
-                    collision = true;
+                    // Capture effect: a packet survives an overlap only if it is at least the threshold stronger.
+                    double powerDifference = transmission.getTransmissionPower() - receivedTransmission.getTransmissionPower();
+                    if (powerDifference < getTransmissionPowerThreshold()) {
+                        collision = true;
+                    }
+                    if (powerDifference > -getTransmissionPowerThreshold()) {
+                        this.receivedTransmissions.getLast().put(receivedTransmission,true);
+                    }
                 }
             }
             receivedTransmissions.getLast().put(transmission,collision);
@@ -395,56 +400,58 @@ public abstract class NetworkEntity implements Serializable{
     /**
      * A method which sends a message to all gateways in the environment
      * @param message The message to send.
+     * @return The transmissions that departed (one per receiver), empty if nothing was sent.
      */
-    protected void loraSend(LoraWanPacket message){
+    protected LinkedList<LoraTransmission> loraSend(LoraWanPacket message){
+        LinkedList<LoraTransmission> packetsToSend = new LinkedList<>();
         if(!isTransmitting) {
-            LinkedList<LoraTransmission> packetsToSend = new LinkedList<>();
             powerSettingHistory.getLast().add(new Pair<>(getEnvironment().getTime().toSecondOfDay(),getTransmissionPower()));
             spreadingFactorHistory.getLast().add(getSF());
             for (Gateway gateway : getEnvironment().getGateways()) {
                 if (gateway != this)
                     packetsToSend.add(new LoraTransmission(this, gateway, getTransmissionPower(), 125, getSF(), message));
             }
-            for (Mote mote : getEnvironment().getMotes()) {
-                if (mote != this)
+            // Motes only send uplinks to gateways (LoRaWAN star topology).
+            if (!(this instanceof Mote)) {
+                for (Mote mote : getEnvironment().getMotes()) {
                     packetsToSend.add(new LoraTransmission(this, mote, getTransmissionPower(), 125, getSF(), message));
+                }
             }
             sentTransmissions.getLast().add(packetsToSend.getFirst());
             for (LoraTransmission packet : packetsToSend) {
                 packet.depart();
-                numberOfSentPackets++;
             }
+            numberOfSentPackets++;
         }
+        return packetsToSend;
     }
 
     /**
-     * Checks if two packets collide according to the model
+     * Checks if two packets collide according to the model: same spreading factor and overlapping in time.
+     * Whether one of them survives (capture effect) is decided in receiveTransmission().
      * @param a The first packet.
      * @param b The second packet.
      * @return true if the packets collide, false otherwise.
      */
     public Boolean collision(LoraTransmission a, LoraTransmission b){
         if(a.getSpreadingFactor().equals(b.getSpreadingFactor())) {
-
-            if(a.getTransmissionPower() - b.getTransmissionPower() < getTransmissionPowerThreshold()){
-
-                if(Math.abs(Duration.between(a.getDepartureTime().plusNanos(a.getTimeOnAir().longValue()*1000000/2),
-                        b.getDepartureTime().plusNanos(b.getTimeOnAir().longValue()*1000000/2)).toNanos())
-                        < a.getTimeOnAir().longValue()*1000000/2 + b.getTimeOnAir().longValue()*1000000/2){
-                    return true;
-                }
-            }
+            // Uses the time since the start: the LocalTime departure times repeat every simulated day.
+            double centerDistance = Math.abs((a.getDepartureMillis() + a.getTimeOnAir() / 2)
+                    - (b.getDepartureMillis() + b.getTimeOnAir() / 2));
+            return centerDistance < a.getTimeOnAir() / 2 + b.getTimeOnAir() / 2;
         }
         return false;
     }
 
     /**
-     * Checks if a transmission is strong enough to be received.
-     * @param packet
-     * @return
+     * Checks if a transmission is strong enough to be received. The receiver sensitivity is the thermal noise
+     * (-174 dBm/Hz over the bandwidth in Hz) plus a 6 dB noise figure plus the minimal SNR of the spreading factor
+     * (-7.5 dB at SF7 down to -20 dB at SF12), i.e. -124.5 dBm at SF7 down to -137 dBm at SF12 for 125 kHz.
+     * @param packet The received transmission.
+     * @return true if the received power is above the sensitivity.
      */
     public Boolean packetStrengthHighEnough(LoraTransmission packet){
-        return packet.getTransmissionPower() > -174 - 10 * Math.log10(packet.getBandwidth()) - (2.5 * packet.getSpreadingFactor() - 10);
+        return packet.getTransmissionPower() > -174 + 10 * Math.log10(packet.getBandwidth() * 1000.0) + 6 - (2.5 * packet.getSpreadingFactor() - 10);
     }
 
     /**
