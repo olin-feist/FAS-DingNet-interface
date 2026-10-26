@@ -8,6 +8,7 @@ import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
+import java.util.Random;
 
 /**
  * A class representing a map of the environment.
@@ -48,6 +49,13 @@ public class Environment implements Serializable {
      * A clock to represent time in the environment.
      */
     private LocalTime clock;
+    /**
+     * The random number generators of the simulation: one for the scenario (identifiers, start offsets, send intervals)
+     * and one for the radio channel (shadow fading), so that how often motes send does not shift the fading values.
+     * Unseeded unless setSeed() is called.
+     */
+    private Random random = new Random();
+    private Random channelRandom = new Random();
     /**
      * The number of zones in the configuration.
      */
@@ -274,6 +282,32 @@ public class Environment implements Serializable {
 
     public void resetClock(){
         this.clock =  LocalTime.of(0,0);
+    }
+
+    /**
+     * Seeds the random number generators, so that runs with the same seed get the same random values.
+     * @param seed The seed.
+     */
+    public void setSeed(long seed) {
+        Random seeds = new Random(seed);
+        this.random = new Random(seeds.nextLong());
+        this.channelRandom = new Random(seeds.nextLong());
+    }
+
+    /**
+     * Returns the random number generator for the scenario (identifiers, start offsets, send intervals).
+     * @return The random number generator for the scenario.
+     */
+    public Random getRandom() {
+        return random;
+    }
+
+    /**
+     * Returns the random number generator for the radio channel (shadow fading).
+     * @return The random number generator for the radio channel.
+     */
+    public Random getChannelRandom() {
+        return channelRandom;
     }
 
     /**

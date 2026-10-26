@@ -106,8 +106,18 @@ Returns the JSON Schema describing the `/execute` request body.
 ## POST `/start_run`
 Starts a new simulation run.
 
+### Query Parameters
+- `seed` (integer, optional) – Seed for the simulation's random values (identifiers, start
+  offsets, send intervals of mote 2, and per-packet shadow fading). Runs with the same seed get
+  the same random values. Without it, a random seed is chosen. Example: `/start_run?seed=42`.
+
+Adaptations arrive from outside at wall-clock times, so runs with an active adaptation strategy
+are not guaranteed to be identical; the random values themselves are.
+
 ### Response
-- `200 OK` – Plain text confirmation that the run has started.
+- `200 OK` – Plain text confirmation that includes the seed used, e.g.
+  `Simulation started with seed 42.`
+- `400 Bad Request` – The seed is not a whole number.
 - `409 Conflict` – Simulation is already running.
 
 ## POST `/stop_run`

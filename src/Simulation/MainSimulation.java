@@ -33,15 +33,30 @@ public class MainSimulation extends Thread {
     SimulationState simulationState;
 
     /**
+     * The seed for the random number generators of the simulation, or {@code null} for an unseeded run.
+     */
+    private final Long seed;
+
+    /**
      * Constructs a {@code MainSimulation} object with the Environment {@code environment}.
      * @param simulationState The environment of the {@code MainSimulation} object.
      * @since 1.0
      */
     public MainSimulation(SimulationState simulationState) {
-        this.simulationState = simulationState;
+        this(simulationState, null);
     }
 
-    public static IotDomain.Environment createEnvironment() {
+    /**
+     * Constructs a {@code MainSimulation} object whose random values are determined by {@code seed}.
+     * @param simulationState The environment of the {@code MainSimulation} object.
+     * @param seed The seed for the random number generators, or {@code null} for an unseeded run.
+     */
+    public MainSimulation(SimulationState simulationState, Long seed) {
+        this.simulationState = simulationState;
+        this.seed = seed;
+    }
+
+    public static IotDomain.Environment createEnvironment(Long seed) {
         /*
          * Generate all the points
          */
@@ -103,11 +118,14 @@ public class MainSimulation extends Thread {
         }
 
         IotDomain.Environment environment = new IotDomain.Environment(map,mapzero,new LinkedHashSet<>());
+        if (seed != null) {
+            environment.setSeed(seed);
+        }
 
         /*
         Add motes and gateways.
          */
-        Random random = new Random();
+        Random random = environment.getRandom();
         new Gateway(random.nextLong(),(int)Math.round(1000* IotDomain.Environment.distance(mapzero.getLatitude(),mapzero.getLongitude(),mapzero.getLatitude(), gw1.getLongitude())),
                 (int)Math.round(1000* IotDomain.Environment.distance(mapzero.getLatitude(),mapzero.getLongitude(),gw1.getLatitude(), mapzero.getLongitude())),
                 environment, 14,12);
@@ -160,7 +178,7 @@ public class MainSimulation extends Thread {
          */
         Boolean adaption = false;
 
-        Environment environment = createEnvironment();
+        Environment environment = createEnvironment(seed);
 
         /*
          Get the motes.
@@ -177,7 +195,7 @@ public class MainSimulation extends Thread {
         /*
          Actual simulation
          */
-        Random random = new Random();
+        Random random = environment.getRandom();
         LinkedList<Integer> powerSetting0 = new LinkedList<>();
         LinkedList<LoraTransmission> highestPower0 = new LinkedList<>();
         int mote0Counter = mote0.getSamplingRate() - 1;

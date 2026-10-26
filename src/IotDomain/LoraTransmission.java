@@ -5,7 +5,6 @@ package IotDomain;
 import java.io.Serializable;
 import java.time.LocalTime;
 import java.util.LinkedList;
-import java.util.Random;
 
 /**
  * A class representing a packet in the LoraWan simulation.
@@ -58,11 +57,6 @@ public class LoraTransmission implements Serializable{
      * The content of the message.
      */
     private final LoraWanPacket content;
-
-    /**
-     * A Random necessary for the gaussian in the model.
-     */
-    private final Random random = new Random();
 
     /**
      * The departure time of the message
@@ -332,7 +326,7 @@ public class LoraTransmission implements Serializable{
             }
 
         }
-        setTransmissionPower(getTransmissionPower() - random.nextGaussian() * characteristic.getShadowFading());
+        setTransmissionPower(getTransmissionPower() - getEnvironment().getChannelRandom().nextGaussian() * characteristic.getShadowFading());
 
         /*
         xDist = Math.abs(xPos - getXPos());
