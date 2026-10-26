@@ -444,14 +444,15 @@ public abstract class NetworkEntity implements Serializable{
     }
 
     /**
-     * Checks if a transmission is strong enough to be received. The receiver sensitivity is the thermal noise
-     * (-174 dBm/Hz over the bandwidth in Hz) plus a 6 dB noise figure plus the minimal SNR of the spreading factor
-     * (-7.5 dB at SF7 down to -20 dB at SF12), i.e. -124.5 dBm at SF7 down to -137 dBm at SF12 for 125 kHz.
+     * Checks if a transmission is strong enough to be received. The path loss model (as in the DingNet paper) has no
+     * reference loss, so received powers are on a relative scale (about -25 to -70 dBm). The sensitivity is set on the
+     * same scale: -60 dBm at SF12, 2.5 dB higher per lower spreading factor (-47.5 dBm at SF7). At the default
+     * settings (14 dBm, SF12) every mote is in range, while low power or a low spreading factor fails far from a gateway.
      * @param packet The received transmission.
      * @return true if the received power is above the sensitivity.
      */
     public Boolean packetStrengthHighEnough(LoraTransmission packet){
-        return packet.getTransmissionPower() > -174 + 10 * Math.log10(packet.getBandwidth() * 1000.0) + 6 - (2.5 * packet.getSpreadingFactor() - 10);
+        return packet.getTransmissionPower() > -40 - (2.5 * packet.getSpreadingFactor() - 10);
     }
 
     /**

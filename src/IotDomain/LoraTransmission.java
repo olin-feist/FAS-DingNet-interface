@@ -296,15 +296,95 @@ public class LoraTransmission implements Serializable{
      * Moves a transmission to a given position, while adapting the transmission power.
      * @param xPos  The x-coordinate of the destination.
      * @param yPos  The y-coordinate of the destination.
-     * @Effect  Decreases the transmissionPower by the log-distance path loss over the straight-line distance to the
-     *          destination, using the characteristic at the sender's position, plus random shadow fading.
+     * @Effect  If the destination is more than 0 moves away from the current position, decrease the transmissionPower
+     *          according to the model and the characteristics of the next position. Which is the position 1 move
+     *          in the direction of the longest difference or in the x direction if the difference is equal.
      */
     private void moveTo(Integer xPos, Integer yPos){
-        double distance = Math.max(1.0, Math.hypot(xPos - getXPos(), yPos - getYPos()));
-        Characteristic characteristic = getEnvironment().getCharacteristic(getXPos(), getYPos());
-        double pathLoss = characteristic.getReferencePathLoss()
-                + 10 * characteristic.getPathLossExponent() * Math.log10(distance / characteristic.getReferenceDistance());
-        setTransmissionPower(getTransmissionPower() - pathLoss - random.nextGaussian() * characteristic.getShadowFading());
+        Integer xDist;
+        Integer yDist;
+        Integer xDir;
+        Integer yDir;
+        Characteristic characteristic;
+        xDist = Math.abs(xPos - getXPos());
+        yDist = Math.abs(yPos - getYPos());
+        xDir = Integer.signum(xPos - getXPos());
+        yDir = Integer.signum(yPos - getYPos());
+        characteristic = getEnvironment().getCharacteristic(xPos, yPos);
+
+        while (getTransmissionPower() > -300 && xDist + yDist > 0){
+            xDist = Math.abs(xPos - getXPos());
+            yDist = Math.abs(yPos - getYPos());
+            xDir = Integer.signum(xPos - getXPos());
+            yDir = Integer.signum(yPos - getYPos());
+            characteristic = getEnvironment().getCharacteristic(xPos, yPos);
+
+            if(xDist + yDist > 1){
+                if(xDist >  2*yDist || yDist >  2*xDist){
+                    setTransmissionPower(getTransmissionPower() - 10 * characteristic.getPathLossExponent() * (Math.log10(xDist + yDist) - Math.log10(xDist + yDist - 1)));
+                    if(xDist >  2*yDist) {
+                        xPos = xPos - xDir;
+                    }
+                    else{
+                        yPos = yPos - yDir;
+                    }
+                }
+                else {
+                    setTransmissionPower(getTransmissionPower() - 10 * characteristic.getPathLossExponent() * (Math.log10(xDist + yDist) - Math.log10(xDist + yDist - Math.sqrt(2))));
+                    xPos =xPos - xDir;
+                    yPos = yPos - yDir;
+                }
+            }
+
+            else if (xDist + yDist == 1){
+                if(xDist >  yDist){
+                    xPos = xPos - xDir;
+                }
+                else {
+                    yPos = yPos - yDir;
+                }
+            }
+
+        }
+        setTransmissionPower(getTransmissionPower() - random.nextGaussian() * characteristic.getShadowFading());
+
+        /*
+        xDist = Math.abs(xPos - getXPos());
+        yDist = Math.abs(yPos - getYPos());
+        xDir = Integer.signum(xPos - getXPos());
+        yDir = Integer.signum(yPos - getYPos());
+        characteristic = getEnvironment().getCharacteristic(xPos, yPos);
+        if(getTransmissionPower() > -300) {
+            if(xDist + yDist > 1){
+                if(xDist >  2*yDist || yDist >  2*xDist){
+                    setTransmissionPower(getTransmissionPower() - 10 * characteristic.getPathLossExponent() * (Math.log10(xDist + yDist) - Math.log10(xDist + yDist - 1)));
+                    if(xDist >  2*yDist) {
+                        moveTo(xPos - xDir, yPos);
+                    }
+                    else{
+                        moveTo(xPos, yPos - yDir);
+                    }
+                }
+                else {
+                    setTransmissionPower(getTransmissionPower() - 10 * characteristic.getPathLossExponent() * (Math.log10(xDist + yDist) - Math.log10(xDist + yDist - Math.sqrt(2))));
+                    moveTo(xPos - xDir, yPos - yDir);
+                }
+            }
+
+            else if (xDist + yDist == 1){
+                if(xDist >  yDist){
+                    moveTo(xPos - xDir, yPos);
+                }
+                else {
+                    moveTo(xPos, yPos - yDir);
+                }
+                }
+            else {
+                setTransmissionPower(getTransmissionPower() - random.nextGaussian() * characteristic.getShadowFading());
+            }
+
+        }
+        */
     }
 
 

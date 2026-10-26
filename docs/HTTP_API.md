@@ -42,20 +42,22 @@ Mote metrics:
 - `shortestDistanceToGateway` – straight-line distance (m) from the mote to the nearest gateway.
 
 ### Radio model
-- Path loss (log-distance): `PL(d) = PL(d0) + 10·n·log10(d / d0)` over the straight-line
-  distance `d`, using the terrain at the sending mote, plus Gaussian shadow fading per packet:
+- Path loss: the model of the DingNet paper (Provoost & Weyns, SEAMS 2019). The signal loses
+  `10·n·log10(d)` dB over the distance `d`, accumulated step by step with the exponent `n` of the
+  terrain it passes, plus Gaussian shadow fading per packet (`IotDomain/Characteristic.java`):
 
-  | Terrain | PL(d0) at d0 = 1000 m | n    | Fading σ |
-  | ------- | --------------------- | ---- | -------- |
-  | Plain   | 128.95 dB             | 2.32 | 3 dB     |
-  | Forest  | 138 dB                | 3.0  | 4 dB     |
-  | City    | 135 dB                | 2.8  | 4 dB     |
+  | Terrain | n | Fading σ |
+  | ------- | - | -------- |
+  | Plain   | 2 | 1.5 dB   |
+  | Forest  | 3 | 1.5 dB   |
+  | City    | 1 | 2 dB     |
 
-  Plain follows LoRa 868 MHz measurements (Petäjäjärvi et al., 2015); Forest and City are
-  illustrative (`IotDomain/Characteristic.java`).
-- Reception: a gateway decodes a packet if the received power exceeds the sensitivity
-  `-174 + 10·log10(125 kHz) + 6 dB noise figure + SNR(SF)`, i.e. -124.5 dBm at SF7 down to
-  -137 dBm at SF12.
+  There is no reference loss, so received powers are on a relative scale (about -25 to -70 dBm),
+  matching the paper's figures and its signal-based thresholds (-48 / -42 dBm).
+- Reception: a gateway decodes a packet if the received power exceeds the sensitivity on the same
+  scale: -60 dBm at SF12, 2.5 dB higher per lower spreading factor (-47.5 dBm at SF7). At the
+  default settings (14 dBm, SF12) every mote is in range; low power or a low spreading factor
+  fails far from a gateway.
 - Collisions: packets with the same spreading factor that overlap in time collide; a packet
   survives only if it is at least 6 dB stronger than the other (capture effect).
 
